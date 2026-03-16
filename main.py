@@ -1,43 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import re
-import types
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 import cbr_extractor as cbr
-
-
-def load_connector_module(connector_path: Path) -> types.ModuleType:
-    """
-    Safely load sql_query and pg_creds from connector.py without executing
-    any top-level example code in that file.
-    """
-    source = connector_path.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(connector_path))
-
-    new_body: list[ast.AST] = []
-    for node in tree.body:
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            new_body.append(node)
-        elif isinstance(node, ast.Assign):
-            if any(
-                isinstance(t, ast.Name) and t.id == "pg_creds"
-                for t in node.targets
-            ):
-                new_body.append(node)
-        elif isinstance(node, ast.FunctionDef) and node.name == "sql_query":
-            new_body.append(node)
-
-    module = types.ModuleType("connector_safe")
-    safe_tree = ast.Module(body=new_body, type_ignores=[])
-    code = compile(safe_tree, str(connector_path), "exec")
-    exec(code, module.__dict__)
-    return module
 
 
 def sanitize_identifier(name: str) -> str:
@@ -65,7 +35,7 @@ def create_table_sql(table: str, df: pd.DataFrame) -> str:
     return f"CREATE TABLE IF NOT EXISTS {sanitize_identifier(table)} ({cols_sql});"
 
 
-def insert_dataframe(connector: types.ModuleType, table: str, df: pd.DataFrame, batch_size: int) -> None:
+def insert_dataframe(connector: Any, table: str, df: pd.DataFrame, batch_size: int) -> None:
     if df.empty:
         print("[WARN] DataFrame is empty; nothing to insert.")
         return
@@ -117,6 +87,7 @@ def main() -> None:
     parser.add_argument("--run-discover", action="store_true")
     parser.add_argument("--load-db", action="store_true")
     parser.add_argument("--table", default="cbr_data")
+    parser.add_argument("--team-suffix", default="_team_6")
     parser.add_argument("--batch-size", type=int, default=10000)
     parser.add_argument("--create-table", action="store_true")
     args = parser.parse_args()
@@ -127,12 +98,16 @@ def main() -> None:
     print(f"[OK] normalized rows: {len(df)}")
 
     if args.load_db:
-        connector_path = Path(__file__).with_name("connector.py")
-        connector = load_connector_module(connector_path)
+        import connector as connector_mod
+
+        table_name = args.table
+        if args.team_suffix and not table_name.endswith(args.team_suffix):
+            table_name = f"{table_name}{args.team_suffix}"
+
         if args.create_table:
-            create_sql = create_table_sql(args.table, df)
-            connector.sql_query(query=create_sql, commit=True)
-        insert_dataframe(connector, args.table, df, args.batch_size)
+            create_sql = create_table_sql(table_name, df)
+            connector_mod.sql_query(query=create_sql, commit=True)
+        insert_dataframe(connector_mod, table_name, df, args.batch_size)
 
 
 if __name__ == "__main__":
