@@ -16,6 +16,13 @@ def sanitize_identifier(name: str) -> str:
     return name
 
 
+def sanitize_table_name(name: str) -> str:
+    parts = name.split(".")
+    if not parts:
+        raise ValueError(f"Unsafe SQL table name: {name}")
+    return ".".join(sanitize_identifier(p) for p in parts)
+
+
 def infer_sql_type(series: pd.Series) -> str:
     if pd.api.types.is_datetime64_any_dtype(series):
         return "TIMESTAMP"
@@ -40,7 +47,7 @@ def insert_dataframe(connector: Any, table: str, df: pd.DataFrame, batch_size: i
         print("[WARN] DataFrame is empty; nothing to insert.")
         return
 
-    table = sanitize_identifier(table)
+    table = sanitize_table_name(table)
     columns = [sanitize_identifier(c) for c in df.columns]
     placeholders = ", ".join(["%s"] * len(columns))
     columns_sql = ", ".join(columns)
