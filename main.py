@@ -92,6 +92,51 @@ def build_table_name(base: str, product_key: str, team_suffix: str) -> str:
     return table
 
 
+def prepare_product_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.rename(columns={"colId": "col_id", "rowId": "row_id"})
+    ordered_cols = [
+        "col_id",
+        "element_id",
+        "measure_id",
+        "unit_id",
+        "obs_val",
+        "row_id",
+        "dt",
+        "periodicity",
+        "date",
+        "digits",
+        "element_name",
+        "unit_name",
+        "product_key",
+        "product_description",
+        "measure_name",
+    ]
+    present = [c for c in ordered_cols if c in df.columns]
+    return df[present]
+
+
+def load_spare_frames(out_dir: Path) -> list[tuple[str, pd.DataFrame]]:
+    base = out_dir
+    spare_jobs: list[tuple[str, pd.DataFrame]] = []
+
+    publications = pd.read_csv(base / "publications.csv").rename(columns={"NoActive": "no_active"})
+    spare_jobs.append(("hr_final_projects.team_6_publications", publications))
+
+    datasets_catalog = pd.read_csv(base / "datasets_catalog.csv")
+    spare_jobs.append(("hr_final_projects.team_6_datasets_catalog", datasets_catalog))
+
+    datasets_short = pd.read_csv(base / "datasets_bank_shortlist.csv")
+    spare_jobs.append(("hr_final_projects.team_6_datasets_bank_shortlist", datasets_short))
+
+    measures = pd.read_csv(base / "measures.csv")
+    spare_jobs.append(("hr_final_projects.team_6_measures", measures))
+
+    years = pd.read_csv(base / "years.csv")
+    spare_jobs.append(("hr_final_projects.team_6_years", years))
+
+    return spare_jobs
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run CBR extraction and optionally load results into Postgres."
@@ -101,15 +146,20 @@ def main() -> None:
     parser.add_argument("--load-db", action="store_true")
     parser.add_argument(
         "--table-prefix",
-        default="cbr_",
-        help="Prefix for per-product tables (e.g. cbr_mortgage_team_6).",
+        default="hr_final_projects.team_6_",
+        help="Prefix for per-product tables (e.g. hr_final_projects.team_6_mortgage).",
     )
-    parser.add_argument("--team-suffix", default="_team_6")
+    parser.add_argument("--team-suffix", default="")
     parser.add_argument("--batch-size", type=int, default=10000)
     parser.add_argument(
         "--skip-extract",
         action="store_true",
         help="Do not call CBR API; use existing normalized_for_db.csv",
+    )
+    parser.add_argument(
+        "--skip-spare",
+        action="store_true",
+        help="Do not load spare/reference tables.",
     )
     args = parser.parse_args()
 
@@ -123,10 +173,20 @@ def main() -> None:
     if args.load_db:
         import connector as connector_mod
 
+        jobs: list[tuple[str, pd.DataFrame]] = []
+
+        if not args.skip_spare:
+            jobs.extend(load_spare_frames(out_dir))
+
         for product_key, df in products.items():
             table_name = build_table_name(args.table_prefix, product_key, args.team_suffix)
+            jobs.append((table_name, prepare_product_df(df)))
+
+        total = len(jobs)
+        for idx, (table_name, df) in enumerate(jobs, start=1):
+            print(f"[{idx}/{total}] Loading {table_name} ({len(df)} rows)")
             insert_dataframe(connector_mod, table_name, df, args.batch_size)
-            print(f"[OK] loaded {len(df)} rows into {table_name}")
+            print(f"[{idx}/{total}] Done {table_name}")
 
 
 if __name__ == "__main__":

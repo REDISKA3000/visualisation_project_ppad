@@ -48,16 +48,28 @@ python main.py --out-dir data/cbr
 python main.py --out-dir data/cbr --skip-extract
 ```
 
-Запуск с загрузкой в Postgres (таблица должна быть создана заранее):
+Запуск с загрузкой в Postgres (таблицы должны быть созданы заранее через SQL-скрипты):
 ```bash
-python main.py --out-dir data/cbr --load-db --table-prefix cbr_
+python main.py --out-dir data/cbr --load-db
 ```
 
 При загрузке в БД создаются отдельные таблицы по каждому `product_key`:
 ```
 <table_prefix><product_key><team_suffix>
 ```
-Например: `cbr_mortgage_team_6`, `cbr_retail_loans_volume_team_6`.
+Например: `hr_final_projects.team_6_mortgage`, `hr_final_projects.team_6_retail_loans_volume`.
+
+По умолчанию `main.py` грузит также справочные таблицы:
+- `hr_final_projects.team_6_publications`
+- `hr_final_projects.team_6_datasets_catalog`
+- `hr_final_projects.team_6_datasets_bank_shortlist`
+- `hr_final_projects.team_6_measures`
+- `hr_final_projects.team_6_years`
+
+Если их грузить не нужно:
+```bash
+python main.py --out-dir data/cbr --load-db --skip-spare
+```
 
 **Как устроены данные**
 
