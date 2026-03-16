@@ -89,7 +89,6 @@ def main() -> None:
     parser.add_argument("--table", default="cbr_data")
     parser.add_argument("--team-suffix", default="_team_6")
     parser.add_argument("--batch-size", type=int, default=10000)
-    parser.add_argument("--create-table", action="store_true")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -104,9 +103,6 @@ def main() -> None:
         if args.team_suffix and not table_name.endswith(args.team_suffix):
             table_name = f"{table_name}{args.team_suffix}"
 
-        if args.create_table:
-            create_sql = create_table_sql(table_name, df)
-            connector_mod.sql_query(query=create_sql, commit=True)
         insert_dataframe(connector_mod, table_name, df, args.batch_size)
 
 
