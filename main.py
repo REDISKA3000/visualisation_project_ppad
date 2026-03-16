@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import os
 from pathlib import Path
 from typing import Any
 
@@ -144,6 +145,24 @@ def load_spare_frames(out_dir: Path) -> list[tuple[str, pd.DataFrame]]:
     return spare_jobs
 
 
+def load_env_file() -> None:
+    env_candidates = [
+        Path(__file__).with_name("_env"),
+        Path(__file__).with_name(".env"),
+        Path.cwd() / "_env",
+        Path.cwd() / ".env",
+    ]
+    try:
+        from dotenv import load_dotenv
+    except Exception:
+        return
+
+    for path in env_candidates:
+        if path.exists():
+            load_dotenv(path)
+            return
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run CBR extraction and optionally load results into Postgres."
@@ -178,6 +197,7 @@ def main() -> None:
     print(f"[OK] product tables: {len(products)}")
 
     if args.load_db:
+        load_env_file()
         import connector as connector_mod
 
         jobs: list[tuple[str, pd.DataFrame]] = []
