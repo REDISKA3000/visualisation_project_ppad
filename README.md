@@ -43,9 +43,9 @@ data/cbr/products/normalized_for_db.csv
 python main.py --out-dir data/cbr
 ```
 
-Запуск с загрузкой в Postgres:
+Запуск с загрузкой в Postgres (таблица должна быть создана заранее):
 ```bash
-python main.py --out-dir data/cbr --load-db --table cbr_data --create-table
+python main.py --out-dir data/cbr --load-db --table cbr_data
 ```
 
 **Как устроены данные**
