@@ -43,6 +43,11 @@ data/cbr/products/normalized_for_db.csv
 python main.py --out-dir data/cbr
 ```
 
+Запуск без обращения к API (использовать уже готовый `normalized_for_db.csv`):
+```bash
+python main.py --out-dir data/cbr --skip-extract
+```
+
 Запуск с загрузкой в Postgres (таблица должна быть создана заранее):
 ```bash
 python main.py --out-dir data/cbr --load-db --table cbr_data

@@ -50,28 +50,39 @@ def insert_dataframe(connector: Any, table: str, df: pd.DataFrame, batch_size: i
     connector.sql_query(query=query, insert_data=data, batch_size=batch_size)
 
 
-def build_dataframes(out_dir: Path, run_discover: bool) -> dict[str, Any]:
-    client = cbr.CBRClient()
+def build_dataframes(out_dir: Path, run_discover: bool, skip_extract: bool) -> dict[str, Any]:
+    products_dir = out_dir / "products"
+    normalized_path = products_dir / "normalized_for_db.csv"
 
-    if run_discover:
-        publications_df, datasets_df = cbr.discover_catalog(client, out_dir)
-        shortlisted = cbr.filter_bank_datasets(datasets_df, out_dir)
-        cbr.save_measures_and_years(client, shortlisted, out_dir)
-        print(
-            f"[OK] publications: {len(publications_df)}, datasets: {len(datasets_df)}, shortlisted: {len(shortlisted)}"
+    if skip_extract:
+        if not normalized_path.exists():
+            raise FileNotFoundError(
+                f"Missing {normalized_path}. Run extract/normalize first or disable --skip-extract."
+            )
+        normalized = pd.read_csv(normalized_path, parse_dates=["obs_date"], dayfirst=False)
+    else:
+        client = cbr.CBRClient()
+
+        if run_discover:
+            publications_df, datasets_df = cbr.discover_catalog(client, out_dir)
+            shortlisted = cbr.filter_bank_datasets(datasets_df, out_dir)
+            cbr.save_measures_and_years(client, shortlisted, out_dir)
+            print(
+                f"[OK] publications: {len(publications_df)}, datasets: {len(datasets_df)}, shortlisted: {len(shortlisted)}"
+            )
+
+        cbr.export_product_data(client, cbr.PRODUCT_CONFIG, products_dir)
+        normalized = cbr.normalize_for_db(
+            products_dir, normalized_path
         )
 
-    cbr.export_product_data(client, cbr.PRODUCT_CONFIG, out_dir / "products")
-    normalized = cbr.normalize_for_db(
-        out_dir / "products", out_dir / "products" / "normalized_for_db.csv"
-    )
-
     product_frames: dict[str, pd.DataFrame] = {}
-    for csv_path in (out_dir / "products").glob("*.csv"):
-        if csv_path.name == "normalized_for_db.csv":
-            continue
-        key = csv_path.stem
-        product_frames[key] = pd.read_csv(csv_path)
+    if products_dir.exists():
+        for csv_path in products_dir.glob("*.csv"):
+            if csv_path.name == "normalized_for_db.csv":
+                continue
+            key = csv_path.stem
+            product_frames[key] = pd.read_csv(csv_path)
 
     return {
         "normalized": normalized,
@@ -89,10 +100,15 @@ def main() -> None:
     parser.add_argument("--table", default="cbr_data")
     parser.add_argument("--team-suffix", default="_team_6")
     parser.add_argument("--batch-size", type=int, default=10000)
+    parser.add_argument(
+        "--skip-extract",
+        action="store_true",
+        help="Do not call CBR API; use existing normalized_for_db.csv",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
-    result = build_dataframes(out_dir, run_discover=args.run_discover)
+    result = build_dataframes(out_dir, run_discover=args.run_discover, skip_extract=args.skip_extract)
     df = result["normalized"]
     print(f"[OK] normalized rows: {len(df)}")
 
