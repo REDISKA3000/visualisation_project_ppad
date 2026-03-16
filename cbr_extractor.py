@@ -219,13 +219,42 @@ def flatten_data_payload(payload: Any) -> pd.DataFrame:
     if isinstance(payload, list):
         return pd.json_normalize(payload)
     if isinstance(payload, dict):
-        row_data = payload.get("RowData") or payload.get("rowData")
+        row_data = (
+            payload.get("RowData")
+            or payload.get("rowData")
+            or payload.get("RawData")
+            or payload.get("rawData")
+        )
         links = payload.get("Links") or payload.get("links")
+        header_data = payload.get("headerData") or payload.get("HeaderData")
+        units = payload.get("units") or payload.get("Units")
 
         if isinstance(row_data, list):
             data_df = pd.json_normalize(row_data)
         else:
             data_df = pd.json_normalize(payload)
+
+        if isinstance(header_data, list) and not data_df.empty:
+            header_df = pd.json_normalize(header_data)
+            if "id" in header_df.columns and "elname" in header_df.columns and "element_id" in data_df.columns:
+                data_df = data_df.merge(
+                    header_df[["id", "elname"]].rename(
+                        columns={"id": "element_id", "elname": "element_name"}
+                    ),
+                    how="left",
+                    on="element_id",
+                )
+
+        if isinstance(units, list) and not data_df.empty:
+            units_df = pd.json_normalize(units)
+            if "id" in units_df.columns and "val" in units_df.columns and "unit_id" in data_df.columns:
+                data_df = data_df.merge(
+                    units_df[["id", "val"]].rename(
+                        columns={"id": "unit_id", "val": "unit_name"}
+                    ),
+                    how="left",
+                    on="unit_id",
+                )
 
         if isinstance(links, list) and not data_df.empty:
             links_df = pd.json_normalize(links)
