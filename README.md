@@ -43,15 +43,21 @@ data/cbr/products/normalized_for_db.csv
 python main.py --out-dir data/cbr
 ```
 
-Запуск без обращения к API (использовать уже готовый `normalized_for_db.csv`):
+Запуск без обращения к API (использовать уже готовые CSV в `data/cbr/products/`):
 ```bash
 python main.py --out-dir data/cbr --skip-extract
 ```
 
 Запуск с загрузкой в Postgres (таблица должна быть создана заранее):
 ```bash
-python main.py --out-dir data/cbr --load-db --table cbr_data
+python main.py --out-dir data/cbr --load-db --table-prefix cbr_
 ```
+
+При загрузке в БД создаются отдельные таблицы по каждому `product_key`:
+```
+<table_prefix><product_key><team_suffix>
+```
+Например: `cbr_mortgage_team_6`, `cbr_retail_loans_volume_team_6`.
 
 **Как устроены данные**
 

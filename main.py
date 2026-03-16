@@ -55,11 +55,11 @@ def build_dataframes(out_dir: Path, run_discover: bool, skip_extract: bool) -> d
     normalized_path = products_dir / "normalized_for_db.csv"
 
     if skip_extract:
-        if not normalized_path.exists():
+        if not products_dir.exists():
             raise FileNotFoundError(
-                f"Missing {normalized_path}. Run extract/normalize first or disable --skip-extract."
+                f"Missing {products_dir}. Run extract first or disable --skip-extract."
             )
-        normalized = pd.read_csv(normalized_path, parse_dates=["obs_date"], dayfirst=False)
+        normalized = None
     else:
         client = cbr.CBRClient()
 
@@ -72,9 +72,7 @@ def build_dataframes(out_dir: Path, run_discover: bool, skip_extract: bool) -> d
             )
 
         cbr.export_product_data(client, cbr.PRODUCT_CONFIG, products_dir)
-        normalized = cbr.normalize_for_db(
-            products_dir, normalized_path
-        )
+        normalized = cbr.normalize_for_db(products_dir, normalized_path)
 
     product_frames: dict[str, pd.DataFrame] = {}
     if products_dir.exists():
@@ -84,10 +82,14 @@ def build_dataframes(out_dir: Path, run_discover: bool, skip_extract: bool) -> d
             key = csv_path.stem
             product_frames[key] = pd.read_csv(csv_path)
 
-    return {
-        "normalized": normalized,
-        "products": product_frames,
-    }
+    return {"normalized": normalized, "products": product_frames}
+
+
+def build_table_name(base: str, product_key: str, team_suffix: str) -> str:
+    table = f"{base}{product_key}"
+    if team_suffix and not table.endswith(team_suffix):
+        table = f"{table}{team_suffix}"
+    return table
 
 
 def main() -> None:
@@ -97,7 +99,11 @@ def main() -> None:
     parser.add_argument("--out-dir", default="data/cbr")
     parser.add_argument("--run-discover", action="store_true")
     parser.add_argument("--load-db", action="store_true")
-    parser.add_argument("--table", default="cbr_data")
+    parser.add_argument(
+        "--table-prefix",
+        default="cbr_",
+        help="Prefix for per-product tables (e.g. cbr_mortgage_team_6).",
+    )
     parser.add_argument("--team-suffix", default="_team_6")
     parser.add_argument("--batch-size", type=int, default=10000)
     parser.add_argument(
@@ -109,17 +115,18 @@ def main() -> None:
 
     out_dir = Path(args.out_dir)
     result = build_dataframes(out_dir, run_discover=args.run_discover, skip_extract=args.skip_extract)
-    df = result["normalized"]
-    print(f"[OK] normalized rows: {len(df)}")
+    products = result["products"]
+    if result["normalized"] is not None:
+        print(f"[OK] normalized rows: {len(result['normalized'])}")
+    print(f"[OK] product tables: {len(products)}")
 
     if args.load_db:
         import connector as connector_mod
 
-        table_name = args.table
-        if args.team_suffix and not table_name.endswith(args.team_suffix):
-            table_name = f"{table_name}{args.team_suffix}"
-
-        insert_dataframe(connector_mod, table_name, df, args.batch_size)
+        for product_key, df in products.items():
+            table_name = build_table_name(args.table_prefix, product_key, args.team_suffix)
+            insert_dataframe(connector_mod, table_name, df, args.batch_size)
+            print(f"[OK] loaded {len(df)} rows into {table_name}")
 
 
 if __name__ == "__main__":
