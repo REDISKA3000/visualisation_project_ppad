@@ -62,6 +62,33 @@ python main.py --out-dir data/cbr --load-db --table cbr_data
 product_key + measure_name + element_name + obs_date
 ```
 
+**CSV в `data/cbr/products/`**
+
+После `extract` в папке `data/cbr/products/` появляются CSV по каждому `product_key`.
+Это сырые выгрузки по конкретной метрике/продукту (ставки, объемы, задолженность и т.д.).
+
+Примеры файлов:
+- `mortgage.csv` — ставки по ипотеке
+- `retail_loans.csv` — ставки по кредитам физлицам
+- `corp_sme_loans.csv` — ставки по кредитам юрлицам и ИП (МСП)
+- `deposits.csv` — ставки по вкладам физлиц
+- `mortgage_count.csv` — количество ипотечных кредитов
+- `mortgage_volume.csv` — объем ипотечных кредитов (млн руб.)
+- `mortgage_debt.csv` — задолженность по ипотеке (млн руб.)
+- `mortgage_overdue.csv` — просроченная задолженность по ипотеке (млн руб.)
+- `mortgage_term.csv` — средневзвешенный срок по ипотеке (месяцы)
+- `retail_loans_volume.csv` — объем кредитов физлицам (млн руб.)
+- `retail_loans_debt.csv` — задолженность по кредитам физлицам (млн руб.)
+- `retail_loans_overdue.csv` — просроченная задолженность по кредитам физлицам (млн руб.)
+- `corp_loans_volume.csv` — объем кредитов юрлицам и ИП (млн руб.)
+- `corp_loans_debt.csv` — задолженность по кредитам юрлицам и ИП (млн руб.)
+- `corp_loans_overdue.csv` — просроченная задолженность по кредитам юрлицам и ИП (млн руб.)
+- `sme_loans_volume.csv` — объем кредитов МСП (млн руб.)
+- `sme_loans_debt.csv` — задолженность по кредитам МСП (млн руб.)
+- `sme_loans_overdue.csv` — просроченная задолженность по кредитам МСП (млн руб.)
+
+Далее команда `normalize` объединяет все эти CSV в один файл `normalized_for_db.csv`.
+
 **Настройка БД**
 
 Данные для подключения указываются в `connector.py` в словаре `pg_creds`.
