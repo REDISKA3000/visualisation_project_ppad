@@ -59,6 +59,12 @@ python main.py --out-dir data/cbr --load-db
 ```
 Например: `hr_final_projects.team_6_mortgage`, `hr_final_projects.team_6_retail_loans_volume`.
 
+Для основных таблиц загрузка идет по годам в партиции:
+```
+hr_final_projects.team_6_<product_key>_<год>
+```
+Например: `hr_final_projects.team_6_mortgage_2022`.
+
 По умолчанию `main.py` грузит также справочные таблицы:
 - `hr_final_projects.team_6_publications`
 - `hr_final_projects.team_6_datasets_catalog`

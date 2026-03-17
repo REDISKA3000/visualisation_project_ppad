@@ -100,6 +100,13 @@ def build_table_name(base: str, product_key: str, team_suffix: str) -> str:
     return table
 
 
+def append_partition_suffix(table_name: str, year: int) -> str:
+    if "." in table_name:
+        schema, table = table_name.split(".", 1)
+        return f"{schema}.{table}_{year}"
+    return f"{table_name}_{year}"
+
+
 def prepare_product_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.rename(columns={"colId": "col_id", "rowId": "row_id"})
     ordered_cols = [
@@ -121,6 +128,30 @@ def prepare_product_df(df: pd.DataFrame) -> pd.DataFrame:
     ]
     present = [c for c in ordered_cols if c in df.columns]
     return df[present]
+
+
+def split_by_year(df: pd.DataFrame, date_col: str = "date") -> dict[int | None, pd.DataFrame]:
+    if date_col not in df.columns:
+        return {None: df}
+
+    dates = pd.to_datetime(df[date_col], errors="coerce")
+    df = df.copy()
+    df[date_col] = dates.dt.date
+    missing = dates.isna()
+    if missing.any():
+        print(f"[WARN] {missing.sum()} rows have invalid {date_col}; they will be skipped.")
+        df = df.loc[~missing].copy()
+        dates = dates.loc[~missing]
+
+    if df.empty:
+        return {}
+
+    years = dates.dt.year
+    df["_year"] = years.values
+    groups: dict[int, pd.DataFrame] = {}
+    for year, sub in df.groupby("_year", sort=True):
+        groups[int(year)] = sub.drop(columns=["_year"])
+    return groups
 
 
 def load_spare_frames(out_dir: Path) -> list[tuple[str, pd.DataFrame]]:
@@ -207,7 +238,17 @@ def main() -> None:
 
         for product_key, df in products.items():
             table_name = build_table_name(args.table_prefix, product_key, args.team_suffix)
-            jobs.append((table_name, prepare_product_df(df)))
+            prepared = prepare_product_df(df)
+            yearly = split_by_year(prepared, date_col="date")
+            if yearly:
+                for year, sub in yearly.items():
+                    if 2019 <= year <= 2026:
+                        part_table = append_partition_suffix(table_name, year)
+                        jobs.append((part_table, sub))
+                    else:
+                        jobs.append((table_name, sub))
+            else:
+                jobs.append((table_name, prepared))
 
         total = len(jobs)
         for idx, (table_name, df) in enumerate(jobs, start=1):
