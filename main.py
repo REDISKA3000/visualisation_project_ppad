@@ -43,7 +43,13 @@ def create_table_sql(table: str, df: pd.DataFrame) -> str:
     return f"CREATE TABLE IF NOT EXISTS {sanitize_identifier(table)} ({cols_sql});"
 
 
-def insert_dataframe(connector: Any, table: str, df: pd.DataFrame, batch_size: int) -> None:
+def insert_dataframe(
+    connector: Any,
+    table: str,
+    df: pd.DataFrame,
+    batch_size: int,
+    conflict_cols: list[str] | None = None,
+) -> None:
     if df.empty:
         print("[WARN] DataFrame is empty; nothing to insert.")
         return
@@ -53,6 +59,9 @@ def insert_dataframe(connector: Any, table: str, df: pd.DataFrame, batch_size: i
     placeholders = ", ".join(["%s"] * len(columns))
     columns_sql = ", ".join(columns)
     query = f"INSERT INTO {table} ({columns_sql}) VALUES ({placeholders})"
+    if conflict_cols is not None:
+        conflict_cols_sql = ", ".join(sanitize_identifier(c) for c in conflict_cols)
+        query = f"{query} ON CONFLICT ({conflict_cols_sql}) DO NOTHING"
 
     data = df.where(pd.notnull(df), None).values.tolist()
     connector.sql_query(query=query, insert_data=data, batch_size=batch_size)
@@ -154,24 +163,28 @@ def split_by_year(df: pd.DataFrame, date_col: str = "date") -> dict[int | None, 
     return groups
 
 
-def load_spare_frames(out_dir: Path) -> list[tuple[str, pd.DataFrame]]:
+def load_spare_frames(out_dir: Path) -> list[tuple[str, pd.DataFrame, list[str]]]:
     base = out_dir
-    spare_jobs: list[tuple[str, pd.DataFrame]] = []
+    spare_jobs: list[tuple[str, pd.DataFrame, list[str]]] = []
 
     publications = pd.read_csv(base / "publications.csv").rename(columns={"NoActive": "no_active"})
-    spare_jobs.append(("hr_final_projects.team_6_publications", publications))
+    spare_jobs.append(("hr_final_projects.team_6_publications", publications, ["id"]))
 
     datasets_catalog = pd.read_csv(base / "datasets_catalog.csv")
-    spare_jobs.append(("hr_final_projects.team_6_datasets_catalog", datasets_catalog))
+    spare_jobs.append(
+        ("hr_final_projects.team_6_datasets_catalog", datasets_catalog, ["dataset_id", "publication_id"])
+    )
 
     datasets_short = pd.read_csv(base / "datasets_bank_shortlist.csv")
-    spare_jobs.append(("hr_final_projects.team_6_datasets_bank_shortlist", datasets_short))
+    spare_jobs.append(
+        ("hr_final_projects.team_6_datasets_bank_shortlist", datasets_short, ["dataset_id", "publication_id"])
+    )
 
     measures = pd.read_csv(base / "measures.csv")
-    spare_jobs.append(("hr_final_projects.team_6_measures", measures))
+    spare_jobs.append(("hr_final_projects.team_6_measures", measures, ["dataset_id", "measure_id"]))
 
     years = pd.read_csv(base / "years.csv")
-    spare_jobs.append(("hr_final_projects.team_6_years", years))
+    spare_jobs.append(("hr_final_projects.team_6_years", years, ["dataset_id", "measure_id"]))
 
     return spare_jobs
 
@@ -231,10 +244,11 @@ def main() -> None:
         load_env_file()
         import connector as connector_mod
 
-        jobs: list[tuple[str, pd.DataFrame]] = []
+        jobs: list[tuple[str, pd.DataFrame, list[str] | None]] = []
 
         if not args.skip_spare:
-            jobs.extend(load_spare_frames(out_dir))
+            for table_name, df, conflict_cols in load_spare_frames(out_dir):
+                jobs.append((table_name, df, conflict_cols))
 
         for product_key, df in products.items():
             table_name = build_table_name(args.table_prefix, product_key, args.team_suffix)
@@ -244,16 +258,16 @@ def main() -> None:
                 for year, sub in yearly.items():
                     if 2019 <= year <= 2026:
                         part_table = append_partition_suffix(table_name, year)
-                        jobs.append((part_table, sub))
+                        jobs.append((part_table, sub, None))
                     else:
-                        jobs.append((table_name, sub))
+                        jobs.append((table_name, sub, None))
             else:
-                jobs.append((table_name, prepared))
+                jobs.append((table_name, prepared, None))
 
         total = len(jobs)
-        for idx, (table_name, df) in enumerate(jobs, start=1):
+        for idx, (table_name, df, conflict_cols) in enumerate(jobs, start=1):
             print(f"[{idx}/{total}] Loading {table_name} ({len(df)} rows)")
-            insert_dataframe(connector_mod, table_name, df, args.batch_size)
+            insert_dataframe(connector_mod, table_name, df, args.batch_size, conflict_cols)
             print(f"[{idx}/{total}] Done {table_name}")
 
 
