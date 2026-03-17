@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import re
 import os
+import io
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import psycopg2
 
 import cbr_extractor as cbr
 
@@ -44,11 +46,13 @@ def create_table_sql(table: str, df: pd.DataFrame) -> str:
 
 
 def insert_dataframe(
-    connector: Any,
+    conn: psycopg2.extensions.connection,
+    cursor: psycopg2.extensions.cursor,
     table: str,
     df: pd.DataFrame,
     batch_size: int,
     conflict_cols: list[str] | None = None,
+    use_copy: bool = True,
 ) -> None:
     if df.empty:
         print("[WARN] DataFrame is empty; nothing to insert.")
@@ -58,13 +62,29 @@ def insert_dataframe(
     columns = [sanitize_identifier(c) for c in df.columns]
     placeholders = ", ".join(["%s"] * len(columns))
     columns_sql = ", ".join(columns)
+    if use_copy and conflict_cols is None:
+        buffer = io.StringIO()
+        df.to_csv(buffer, index=False, header=False, sep="\t", na_rep="\\N")
+        buffer.seek(0)
+        copy_sql = (
+            f"COPY {table} ({columns_sql}) FROM STDIN "
+            "WITH (FORMAT CSV, DELIMITER E'\\t', NULL '\\\\N')"
+        )
+        cursor.copy_expert(copy_sql, buffer)
+        conn.commit()
+        return
+
     query = f"INSERT INTO {table} ({columns_sql}) VALUES ({placeholders})"
     if conflict_cols is not None:
         conflict_cols_sql = ", ".join(sanitize_identifier(c) for c in conflict_cols)
         query = f"{query} ON CONFLICT ({conflict_cols_sql}) DO NOTHING"
 
     data = df.where(pd.notnull(df), None).values.tolist()
-    connector.sql_query(query=query, insert_data=data, batch_size=batch_size)
+    for i in range(0, len(data), batch_size):
+        batch = data[i:i + batch_size]
+        cursor.executemany(query, batch)
+        conn.commit()
+        print(f"Батч с {i} по {i + len(batch) - 1} успешно вставлен")
 
 
 def build_dataframes(out_dir: Path, run_discover: bool, skip_extract: bool) -> dict[str, Any]:
@@ -265,10 +285,21 @@ def main() -> None:
                 jobs.append((table_name, prepared, None))
 
         total = len(jobs)
-        for idx, (table_name, df, conflict_cols) in enumerate(jobs, start=1):
-            print(f"[{idx}/{total}] Loading {table_name} ({len(df)} rows)")
-            insert_dataframe(connector_mod, table_name, df, args.batch_size, conflict_cols)
-            print(f"[{idx}/{total}] Done {table_name}")
+        with psycopg2.connect(**connector_mod.pg_creds) as conn:
+            with conn.cursor() as cursor:
+                for idx, (table_name, df, conflict_cols) in enumerate(jobs, start=1):
+                    print(f"[{idx}/{total}] Loading {table_name} ({len(df)} rows)")
+                    use_copy = conflict_cols is None
+                    insert_dataframe(
+                        conn,
+                        cursor,
+                        table_name,
+                        df,
+                        args.batch_size,
+                        conflict_cols,
+                        use_copy=use_copy,
+                    )
+                    print(f"[{idx}/{total}] Done {table_name}")
 
 
 if __name__ == "__main__":
